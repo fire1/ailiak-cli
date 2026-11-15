@@ -94,7 +94,7 @@ export async function resolveSettings(): Promise<{ token: string; apiUrl: string
     );
   }
   if (!token.startsWith('ailiak_')) {
-    throw new Error('Token should look like ailiak_… (from Studio → AI agents).');
+    throw new Error('Token should look like ailiak_… (from Studio → Agents).');
   }
   return { token, apiUrl };
 }

@@ -47,7 +47,7 @@ CLI naming tip: prefer `ailiak desk`, `ailiak done`, `ailiak task …` over gene
 - Guest mode (web only): local canvas on device; can import into account on first sign-in
 - Handles are unique via `handles/{handle}`
 
-**CLI auth (recommended):** do **not** reimplement Firebase Auth in the CLI unless necessary. Users create a personal access token in the web app (**Studio → AI agents**); CLI uses `Authorization: Bearer ailiak_…` against the Agent API.
+**CLI auth (recommended):** do **not** reimplement Firebase Auth in the CLI unless necessary. Users create a personal access token in the web app (**Studio → Agents**); CLI uses `Authorization: Bearer ailiak_…` against the Agent API.
 
 Group admins can also create **shareable group-scoped** tokens (MCP limited to that group).
 
@@ -149,7 +149,7 @@ Under a personal task: short replies. Compose supports `/spent` (add time) and `
 | GitLab | `/studio/gitlab` | Issues / MRs via Agent API proxy |
 | GitHub | `/studio/github` | Issues / PRs via Agent API proxy |
 | Integrations | `/studio/integrations` | Index of integrations |
-| AI agents | `/studio/agents` | Create/revoke PATs, token skills |
+| Agents | `/studio/agents` | Create/revoke PATs, token skills |
 | Trash | `/studio/trash` | Restore / purge |
 | Settings | `/studio/settings` | Org (layout, workday, timer, cleanup), appearance, notifications |
 | Help | `/studio/help` | In-app manual |

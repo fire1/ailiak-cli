@@ -81,7 +81,7 @@ function waitForEnter(prompt: string): Promise<void> {
 export async function cmdAuthSet(token: string, opts: { apiUrl?: string }): Promise<void> {
   const trimmed = token.trim();
   if (!trimmed.startsWith('ailiak_')) {
-    throw new Error('Token should look like ailiak_… (from Studio → AI agents).');
+    throw new Error('Token should look like ailiak_… (from Studio → Agents).');
   }
   const patch: { token: string; apiUrl?: string } = { token: trimmed };
   if (opts.apiUrl) patch.apiUrl = opts.apiUrl.replace(/\/+$/, '');

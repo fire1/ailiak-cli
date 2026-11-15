@@ -98,7 +98,7 @@ const auth = program.command('auth').description('Agent token setup');
 
 auth
   .command('set <token>')
-  .description('Save ailiak_… token from Studio → AI agents')
+  .description('Save ailiak_… token from Studio → Agents')
   .option('--api-url <url>', 'Override API base (default https://api.ailiak.com)')
   .action((token: string, opts: { apiUrl?: string }) => run(() => cmdAuthSet(token, opts)));
 

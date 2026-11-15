@@ -69,7 +69,7 @@ Unlink local: `npm unlink -g ailiak`
 ## Quick start
 
 1. Sign in at [ailiak.com](https://ailiak.com)
-2. Studio → [AI agents](https://ailiak.com/studio/agents) → create a token
+2. Studio → [Agents](https://ailiak.com/studio/agents) → create a token
 3. Save it:
 
 ```bash
