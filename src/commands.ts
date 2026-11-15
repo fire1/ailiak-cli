@@ -1,11 +1,13 @@
 import { createInterface } from 'node:readline';
 import {
   configPath,
+  getDeskIndex,
   getTimer,
   loadConfig,
   resolveGithub,
   resolveGitlab,
   saveConfig,
+  saveDeskIndex,
   setTimer,
   DEFAULT_API_URL,
 } from './config.js';
@@ -31,6 +33,12 @@ import { githubCreateIssue, githubListTickets, githubTest } from './github.js';
 import { gitlabCreateIssue, gitlabListTickets, gitlabTest } from './gitlab.js';
 import { McpClient } from './mcp.js';
 import {
+  buildDeskIndex,
+  deskTasksOnly,
+  noteCountByParent,
+  resolveTaskRef,
+} from './resolve.js';
+import {
   closedRemoteKeys,
   filterNewTickets,
   isGithubLink,
@@ -55,12 +63,20 @@ async function client(): Promise<McpClient> {
 
 function hintApiUpgrade(err: unknown): never {
   const msg = err instanceof Error ? err.message : String(err);
-  if (/unknown tool|method not found|add_task_spent|set_task_estimate|link_task/i.test(msg)) {
+  if (
+    /unknown tool|method not found|add_task_spent|set_task_estimate|link_task|add_task_note/i.test(
+      msg,
+    )
+  ) {
     throw new Error(
-      `${msg}\n\nThis needs Agent API ≥1.3.0. From the ailiak repo:\n  cd agent-api && yarn deploy\nOr point AILIAK_API_URL at a local wrangler dev Worker.`,
+      `${msg}\n\nThis needs a newer Agent API (add_task_note / spent / estimate). From the ailiak repo:\n  cd agent-api && yarn deploy\nOr point AILIAK_API_URL at a local wrangler dev Worker.`,
     );
   }
   throw err instanceof Error ? err : new Error(msg);
+}
+
+async function taskId(ref: string): Promise<string> {
+  return resolveTaskRef(ref);
 }
 
 async function listAllOpen(mcp: McpClient): Promise<TaskSummary[]> {
@@ -172,22 +188,82 @@ export async function cmdDesk(
     tasks: TaskSummary[];
   }>('list_open_tasks', args);
 
+  const all = data.tasks || [];
+  const tasks = deskTasksOnly(all);
+  const forDate = opts.all ? null : (data.forDate ?? (args.forDate as string) ?? todayLocal());
+  const tag = data.tag ? String(data.tag).replace(/^#/, '') : null;
+  await saveDeskIndex(buildDeskIndex(all, { forDate, tag }));
+
   if (wantJson(opts)) {
-    printJson(data);
+    printJson({
+      ...data,
+      count: tasks.length,
+      tasks,
+      dayIndex: tasks.map((t, i) => ({ n: i + 1, id: t.id, taskNumber: t.taskNumber })),
+    });
     return;
   }
-  printTaskList(data.tasks || [], {
-    forDate: opts.all ? null : (data.forDate ?? (args.forDate as string) ?? todayLocal()),
-    tag: data.tag,
+  printTaskList(tasks, {
+    forDate,
+    tag,
     scope: data.scope,
+    noteCounts: noteCountByParent(all),
   });
 }
 
-export async function cmdTaskShow(id: string, opts: GlobalOpts): Promise<void> {
-  const mcp = await client();
+async function loadTaskWithNotes(mcp: McpClient, id: string): Promise<TaskSummary> {
   const task = await mcp.callTool<TaskSummary>('get_task', { id });
-  if (wantJson(opts)) printJson(task);
-  else printTask(task);
+  if (task.kind === 'thread_note') return task;
+  if (Array.isArray(task.notes)) return task;
+
+  // Older Agent API: notes come as thread_note rows on list_open_tasks.
+  try {
+    const data = await mcp.callTool<{ tasks: TaskSummary[] }>('list_open_tasks', {
+      forDate: task.forDate || undefined,
+    });
+    const notes = (data.tasks || [])
+      .filter((t) => t.kind === 'thread_note' && t.parentId === id)
+      .sort((a, b) => String(a.createdAt || '').localeCompare(String(b.createdAt || '')));
+    return { ...task, notes };
+  } catch {
+    return { ...task, notes: [] };
+  }
+}
+
+export async function cmdDeskRead(
+  ref: string,
+  opts: GlobalOpts & { note?: string },
+): Promise<void> {
+  const id = await taskId(ref);
+  const mcp = await client();
+
+  if (opts.note !== undefined) {
+    const text = opts.note.trim();
+    if (!text) throw new Error('Pass a note with --note "…"');
+    if (text.length > 280) throw new Error(`Note is max 280 chars (got ${text.length}).`);
+    try {
+      await mcp.callTool<{ ok: boolean; note: TaskSummary }>('add_task_note', { id, text });
+    } catch (err) {
+      hintApiUpgrade(err);
+    }
+  }
+
+  const task = await loadTaskWithNotes(mcp, id);
+  const index = await getDeskIndex();
+  const dayNumber = index?.entries.find((e) => e.id === id)?.n;
+
+  if (wantJson(opts)) {
+    printJson({ ...task, dayNumber: dayNumber ?? null });
+    return;
+  }
+  printTask(task, { dayNumber });
+  if (opts.note !== undefined) {
+    process.stdout.write('\nNote added.\n');
+  }
+}
+
+export async function cmdTaskShow(ref: string, opts: GlobalOpts): Promise<void> {
+  await cmdDeskRead(ref, opts);
 }
 
 export async function cmdTaskAdd(
@@ -224,7 +300,8 @@ export async function cmdTaskAdd(
   }
 }
 
-export async function cmdTaskDate(id: string, dateRaw: string, opts: GlobalOpts): Promise<void> {
+export async function cmdTaskDate(ref: string, dateRaw: string, opts: GlobalOpts): Promise<void> {
+  const id = await taskId(ref);
   const forDate = parseDay(dateRaw);
   const mcp = await client();
   const data = await mcp.callTool<{ ok: boolean; task: TaskSummary }>('set_task_date', {
@@ -235,28 +312,32 @@ export async function cmdTaskDate(id: string, dateRaw: string, opts: GlobalOpts)
   else printOk(forDate ? `scheduled ${forDate}` : 'unscheduled', data.task);
 }
 
-export async function cmdTaskDone(id: string, opts: GlobalOpts): Promise<void> {
+export async function cmdTaskDone(ref: string, opts: GlobalOpts): Promise<void> {
+  const id = await taskId(ref);
   const mcp = await client();
   const data = await mcp.callTool<{ ok: boolean; task: TaskSummary }>('mark_task_done', { id });
   if (wantJson(opts)) printJson(data);
   else printOk('done', data.task);
 }
 
-export async function cmdTaskReopen(id: string, opts: GlobalOpts): Promise<void> {
+export async function cmdTaskReopen(ref: string, opts: GlobalOpts): Promise<void> {
+  const id = await taskId(ref);
   const mcp = await client();
   const data = await mcp.callTool<{ ok: boolean; task: TaskSummary }>('reopen_task', { id });
   if (wantJson(opts)) printJson(data);
   else printOk('reopened', data.task);
 }
 
-export async function cmdTaskTrash(id: string, opts: GlobalOpts): Promise<void> {
+export async function cmdTaskTrash(ref: string, opts: GlobalOpts): Promise<void> {
+  const id = await taskId(ref);
   const mcp = await client();
   const data = await mcp.callTool<{ ok: boolean; task: TaskSummary }>('trash_task', { id });
   if (wantJson(opts)) printJson(data);
   else printOk('trashed', data.task);
 }
 
-export async function cmdTaskSpent(id: string, duration: string, opts: GlobalOpts): Promise<void> {
+export async function cmdTaskSpent(ref: string, duration: string, opts: GlobalOpts): Promise<void> {
+  const id = await taskId(ref);
   const seconds = requireDuration(duration);
   const mcp = await client();
   try {
@@ -272,10 +353,11 @@ export async function cmdTaskSpent(id: string, duration: string, opts: GlobalOpt
 }
 
 export async function cmdTaskEstimate(
-  id: string,
+  ref: string,
   duration: string,
   opts: GlobalOpts,
 ): Promise<void> {
+  const id = await taskId(ref);
   const seconds = duration.trim() === '0' || duration.trim().toLowerCase() === 'none'
     ? 0
     : requireDuration(duration);
@@ -292,7 +374,8 @@ export async function cmdTaskEstimate(
   }
 }
 
-export async function cmdTaskStart(id: string, opts: GlobalOpts): Promise<void> {
+export async function cmdTaskStart(ref: string, opts: GlobalOpts): Promise<void> {
+  const id = await taskId(ref);
   const mcp = await client();
   const task = await mcp.callTool<TaskSummary>('get_task', { id });
   const existing = await getTimer();
@@ -362,13 +445,16 @@ export async function cmdTaskTimer(opts: GlobalOpts): Promise<void> {
 }
 
 export async function cmdWork(
-  id: string,
+  ref: string,
   opts: GlobalOpts & { done?: boolean },
 ): Promise<void> {
+  const id = await taskId(ref);
   const mcp = await client();
   const task = await mcp.callTool<TaskSummary>('get_task', { id });
+  const index = await getDeskIndex();
+  const dayNumber = index?.entries.find((e) => e.id === id)?.n;
   if (!wantJson(opts)) {
-    printTask(task);
+    printTask(task, { dayNumber });
     process.stdout.write('\n');
   }
   await cmdTaskStart(id, opts);
@@ -478,7 +564,8 @@ export async function cmdGithubSyncDone(opts: GlobalOpts): Promise<void> {
   process.stdout.write(`Marked ${ok} done from GitHub.\n`);
 }
 
-export async function cmdGithubPush(id: string, opts: GlobalOpts): Promise<void> {
+export async function cmdGithubPush(ref: string, opts: GlobalOpts): Promise<void> {
+  const id = await taskId(ref);
   const gh = await resolveGithub();
   const mcp = await client();
   const task = await mcp.callTool<TaskSummary>('get_task', { id });
@@ -607,7 +694,8 @@ export async function cmdGitlabSyncDone(opts: GlobalOpts): Promise<void> {
   process.stdout.write(`Marked ${ok} done from GitLab.\n`);
 }
 
-export async function cmdGitlabPush(id: string, opts: GlobalOpts): Promise<void> {
+export async function cmdGitlabPush(ref: string, opts: GlobalOpts): Promise<void> {
+  const id = await taskId(ref);
   const gl = await resolveGitlab();
   const mcp = await client();
   const task = await mcp.callTool<TaskSummary>('get_task', { id });

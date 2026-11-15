@@ -20,6 +20,24 @@ export type TaskSummary = {
   parentId: string | null;
   parentText: string | null;
   groupId: string | null;
+  /** Present on get_task for personal desk tasks (thread under the card). */
+  notes?: TaskSummary[];
+};
+
+/** Last `ailiak desk` listing — maps day # / ticket # → task id. */
+export type DeskIndexEntry = {
+  n: number;
+  id: string;
+  taskNumber: string | null;
+  title: string | null;
+  text: string;
+};
+
+export type DeskIndex = {
+  forDate: string | null;
+  tag: string | null;
+  updatedAt: string;
+  entries: DeskIndexEntry[];
 };
 
 export type GroupSummary = {
@@ -93,4 +111,5 @@ export type CliConfig = {
   github?: GithubConfig;
   gitlab?: GitlabConfig;
   timer?: TimerState | null;
+  deskIndex?: DeskIndex | null;
 };

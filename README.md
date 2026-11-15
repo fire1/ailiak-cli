@@ -117,24 +117,28 @@ Config file: `~/.config/ailiak/config.json` (mode `0600`).
 | `ailiak whoami` | Account + token scope |
 | `ailiak skill` | Init skill + hashtag skills |
 | `ailiak groups` | Groups this token can see |
-| `ailiak desk [date]` | Open tasks for a day (default **today**) |
+| `ailiak desk` / `desk list [date]` | Compact numbered list for a day (default **today**) |
 | `ailiak desk --all` / `-a` | All open tasks (ignore day) |
 | `ailiak desk -t, --tag <tag>` | Filter by hashtag |
-| `ailiak work <id>` | Show task, start timer, stop on Enter |
-| `ailiak work <id> --done` | Same, then mark done |
+| `ailiak desk read <ref>` | Full task (title, detail, notes) — like the Desk sheet |
+| `ailiak desk read <ref> --note "…"` | Read and add a note under the task |
+| `ailiak work <ref>` | Show task, start timer, stop on Enter |
+| `ailiak work <ref> --done` | Same, then mark done |
 
 Dates: `YYYY-MM-DD`, `today`, `tomorrow`, or `none` (unscheduled).
+
+**Refs** (after `ailiak desk`): day number `1`, `2`…; ticket `#12` / `pr-3`; or the full id. Day numbers come from the last list.
 
 ### Tasks
 
 | Command | What it does |
 |---------|----------------|
-| `ailiak task show <id>` | One task or thread note |
+| `ailiak task show <ref>` | Same as `desk read` |
 | `ailiak task add <text…>` | Create a note (short line ≤255) |
-| `ailiak task date <id> <day>` | Schedule / unschedule |
-| `ailiak task done <id>` | Finish |
-| `ailiak task reopen <id>` | Undo finish |
-| `ailiak task trash <id>` | Soft-delete |
+| `ailiak task date <ref> <day>` | Schedule / unschedule |
+| `ailiak task done <ref>` | Finish |
+| `ailiak task reopen <ref>` | Undo finish |
+| `ailiak task trash <ref>` | Soft-delete |
 
 **`task add` options**
 
@@ -148,13 +152,13 @@ Dates: `YYYY-MM-DD`, `today`, `tomorrow`, or `none` (unscheduled).
 
 ### Time tracking
 
-Needs **Agent API ≥1.3.0** (`add_task_spent` / `set_task_estimate`).
+Needs a current Agent API (`add_task_spent` / `set_task_estimate` / `add_task_note`).
 
 | Command | What it does |
 |---------|----------------|
-| `ailiak task spent <id> <duration>` | Add logged time (`25m`, `1h 15m`, `1:30`) |
-| `ailiak task estimate <id> <duration>` | Set planned time (`0` / `none` clears) |
-| `ailiak task start <id>` | Start a local timer |
+| `ailiak task spent <ref> <duration>` | Add logged time (`25m`, `1h 15m`, `1:30`) |
+| `ailiak task estimate <ref> <duration>` | Set planned time (`0` / `none` clears) |
+| `ailiak task start <ref>` | Start a local timer |
 | `ailiak task stop` | Stop timer → add spent |
 | `ailiak task stop --done` | Stop + mark done |
 | `ailiak task timer` | Show running timer |
@@ -174,7 +178,7 @@ Talks to GitHub’s API with your PAT; links Desk notes via `embedUrl` + `taskNu
 | `ailiak github import --dry-run` | Preview only |
 | `ailiak github import --date <day>` | Schedule imported tasks |
 | `ailiak github sync-done` | Mark linked Desk tasks done when issues/PRs close |
-| `ailiak github push <id>` | Create a GitHub issue from a Desk task and link it |
+| `ailiak github push <ref>` | Create a GitHub issue from a Desk task and link it |
 
 | Env | Meaning |
 |-----|---------|
@@ -197,7 +201,7 @@ Same pattern as GitHub.
 | `ailiak gitlab import --dry-run` | Preview only |
 | `ailiak gitlab import --date <day>` | Schedule imported tasks |
 | `ailiak gitlab sync-done` | Mark linked Desk tasks done when issues/MRs close |
-| `ailiak gitlab push <id>` | Create a GitLab issue from a Desk task and link it |
+| `ailiak gitlab push <ref>` | Create a GitLab issue from a Desk task and link it |
 
 | Env | Meaning |
 |-----|---------|
@@ -214,22 +218,24 @@ Same pattern as GitHub.
 ```bash
 ailiak auth set ailiak_…
 ailiak desk
+ailiak desk read 2
+ailiak desk read 2 --note "waiting on review"
 ailiak desk tomorrow --tag work
 ailiak task add "buy oat milk" --date today --estimate 15m
-ailiak work <id> --done
-ailiak task spent <id> 25m
+ailiak work 2 --done
+ailiak task spent 2 25m
 
 ailiak github config --token ghp_… --repo owner/name
 ailiak github import --dry-run
 ailiak github sync-done
-ailiak gitlab push <id>
+ailiak gitlab push 3
 ```
 
 ---
 
-## Agent API (≥1.3.0 for spent / link)
+## Agent API (notes / spent / link)
 
-Spent, estimate, and ticket links need the Worker tools from the main [ailiak](https://github.com/fire1/ailiak) `agent-api` package.
+Notes under a task (`desk read --note`), spent, estimate, and ticket links need the Worker tools from the main [ailiak](https://github.com/fire1/ailiak) `agent-api` package.
 
 ```bash
 cd agent-api

@@ -36,6 +36,38 @@ function kindLabel(task: TaskSummary): string {
   return '';
 }
 
+function headline(task: TaskSummary): string {
+  if (task.title) return task.title;
+  return task.text || '(empty)';
+}
+
+function subtitle(task: TaskSummary): string {
+  if (task.title && task.text) return task.text;
+  return '';
+}
+
+function relativeTime(iso: string | null | undefined): string {
+  if (!iso) return '';
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return '';
+  const sec = Math.round((Date.now() - t) / 1000);
+  if (sec < 60) return 'just now';
+  if (sec < 3600) return `${Math.floor(sec / 60)}m ago`;
+  if (sec < 86400) return `${Math.floor(sec / 3600)}h ago`;
+  if (sec < 86400 * 7) return `${Math.floor(sec / 86400)}d ago`;
+  return iso.slice(0, 10);
+}
+
+/** Collapse runs of blank lines so imported ticket bodies stay scannable. */
+function tidyBlock(text: string): string {
+  return text
+    .replace(/\r\n/g, '\n')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+/** One-line summary (used by printOk / work timer). */
 export function formatTaskLine(task: TaskSummary): string {
   const id = c(DIM, task.id);
   const kind = kindLabel(task);
@@ -56,7 +88,15 @@ export function formatTaskLine(task: TaskSummary): string {
   return parts.join('  ');
 }
 
-export function printTaskList(tasks: TaskSummary[], meta?: { forDate?: string | null; tag?: string | null; scope?: string }): void {
+export function printTaskList(
+  tasks: TaskSummary[],
+  meta?: {
+    forDate?: string | null;
+    tag?: string | null;
+    scope?: string;
+    noteCounts?: Map<string, number>;
+  },
+): void {
   const headerBits: string[] = [c(ACCENT, 'desk')];
   if (meta?.forDate) headerBits.push(meta.forDate);
   else if (meta?.forDate === null) headerBits.push('all open');
@@ -69,29 +109,96 @@ export function printTaskList(tasks: TaskSummary[], meta?: { forDate?: string | 
     return;
   }
 
-  for (const t of tasks) {
-    process.stdout.write(`${formatTaskLine(t)}\n`);
+  for (let i = 0; i < tasks.length; i++) {
+    const t = tasks[i];
+    const n = i + 1;
+    const ticket = t.taskNumber ? c(ACCENT, `#${String(t.taskNumber).replace(/^#/, '')}`) : '';
+    const pin = t.pinned ? c(ACCENT, 'pin') : '';
+    const head = c(BOLD, headline(t));
+    const sub = subtitle(t);
+
+    process.stdout.write('\n');
+    process.stdout.write(
+      `${c(ACCENT, String(n).padStart(2, ' '))}  ${[ticket, pin, head].filter(Boolean).join('  ')}\n`,
+    );
+    if (sub) {
+      const clipped = sub.length > 100 ? `${sub.slice(0, 97)}…` : sub;
+      process.stdout.write(`    ${clipped}\n`);
+    }
+
+    const metaBits: string[] = [];
+    if (t.estimateSeconds) metaBits.push(`est ${formatDuration(t.estimateSeconds)}`);
+    if (t.spentSeconds) metaBits.push(formatDuration(t.spentSeconds));
+    const notes = meta?.noteCounts?.get(t.id) || 0;
+    if (notes) metaBits.push(`${notes} note${notes === 1 ? '' : 's'}`);
+    if (t.hashtags?.length) metaBits.push(tags(t.hashtags));
+    if (t.embedUrl) metaBits.push(c(DIM, '↗'));
+    if (metaBits.length) {
+      process.stdout.write(`    ${c(DIM, metaBits.join(' · '))}\n`);
+    }
   }
-  process.stdout.write(`${c(DIM, `${tasks.length} open`)}\n`);
+
+  process.stdout.write('\n');
+  process.stdout.write(
+    `${c(DIM, `${tasks.length} open`)}  ·  ${c(DIM, 'ailiak desk read <n>')}\n`,
+  );
 }
 
-export function printTask(task: TaskSummary): void {
+/** Full task view — mirrors the Desk notes sheet (title, detail, notes). */
+export function printTask(task: TaskSummary, opts?: { dayNumber?: number }): void {
   const lines: string[] = [];
-  lines.push(`${c(ACCENT, task.kind === 'thread_note' ? 'thread note' : 'task')}  ${c(DIM, task.id)}`);
-  if (task.title) lines.push(`${c(BOLD, task.title)}`);
-  lines.push(task.text || '(empty)');
-  if (task.detail) lines.push('', task.detail);
+  const kind = task.kind === 'thread_note' ? 'thread note' : 'task';
+  const day = opts?.dayNumber ? `day ${opts.dayNumber}` : '';
+  const ticket = task.taskNumber
+    ? `#${String(task.taskNumber).replace(/^#/, '')}`
+    : '';
+  const headBits = [c(ACCENT, kind), day, ticket, c(DIM, task.id)].filter(Boolean);
+  lines.push(headBits.join('  '));
+  lines.push('');
+  lines.push(c(BOLD, headline(task)));
+  const sub = subtitle(task);
+  if (sub) lines.push(tidyBlock(sub));
+  if (task.detail) {
+    const detail = tidyBlock(task.detail);
+    if (detail) {
+      lines.push('');
+      lines.push(detail);
+    }
+  }
+
+  const notes = task.notes || [];
+  if (task.kind !== 'thread_note') {
+    lines.push('');
+    lines.push(c(DIM, '── notes ──'));
+    if (!notes.length) {
+      lines.push(c(DIM, '  (none yet)'));
+    } else {
+      for (const n of notes) {
+        const when = relativeTime(n.createdAt);
+        const prefix = when ? c(DIM, `  · ${when}`) : c(DIM, '  ·');
+        lines.push(`${prefix}  ${n.text || '(empty)'}`);
+      }
+    }
+  }
+
   lines.push('');
   lines.push(`${c(DIM, 'date')}     ${task.forDate ?? 'unscheduled'}`);
   lines.push(`${c(DIM, 'done')}     ${task.done ? 'yes' : 'no'}`);
   if (task.pinned) lines.push(`${c(DIM, 'pinned')}   yes`);
-  if (task.hashtags?.length) lines.push(`${c(DIM, 'tags')}     ${task.hashtags.map((t) => `#${t}`).join(' ')}`);
-  if (task.estimateSeconds) lines.push(`${c(DIM, 'estimate')} ${formatDuration(task.estimateSeconds)}`);
-  if (task.spentSeconds) lines.push(`${c(DIM, 'spent')}    ${formatDuration(task.spentSeconds)}`);
-  if (task.taskNumber) lines.push(`${c(DIM, 'ticket')}   #${task.taskNumber}`);
+  if (task.hashtags?.length) {
+    lines.push(`${c(DIM, 'tags')}     ${task.hashtags.map((t) => `#${t}`).join(' ')}`);
+  }
+  if (task.estimateSeconds) {
+    lines.push(`${c(DIM, 'estimate')} ${formatDuration(task.estimateSeconds)}`);
+  }
+  if (task.spentSeconds) {
+    lines.push(`${c(DIM, 'spent')}    ${formatDuration(task.spentSeconds)}`);
+  }
   if (task.embedUrl) lines.push(`${c(DIM, 'link')}     ${task.embedUrl}`);
   if (task.parentId) {
-    lines.push(`${c(DIM, 'parent')}   ${task.parentId}${task.parentText ? ` — ${task.parentText}` : ''}`);
+    lines.push(
+      `${c(DIM, 'parent')}   ${task.parentId}${task.parentText ? ` — ${task.parentText}` : ''}`,
+    );
   }
   if (task.groupId) lines.push(`${c(DIM, 'group')}    ${task.groupId}`);
   process.stdout.write(`${lines.join('\n')}\n`);

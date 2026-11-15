@@ -6,6 +6,7 @@ import {
   cmdAuthSet,
   cmdAuthStatus,
   cmdDesk,
+  cmdDeskRead,
   cmdGithubConfig,
   cmdGithubImport,
   cmdGithubPush,
@@ -40,7 +41,7 @@ const program = new Command();
 program
   .name('ailiak')
   .description('Calm CLI for ailiak.com — tasks in, tasks out, without the rush.')
-  .version('0.2.0')
+  .version('0.3.0')
   .option('--json', 'Machine-readable JSON output')
   .option('--no-color', 'Disable color')
   .configureOutput({
@@ -77,21 +78,39 @@ program
   .description('List groups this token can access')
   .action(() => run(() => cmdGroups(globals())));
 
-program
-  .command('desk [date]')
-  .description('List open desk tasks for a day (default: today)')
+const desk = program
+  .command('desk')
+  .description('Browse open desk tasks (list by day #, read one fully)')
+  .argument('[date]', 'Day to list (YYYY-MM-DD / today / tomorrow; default today)')
   .option('-t, --tag <tag>', 'Filter by hashtag')
   .option('-a, --all', 'All open tasks (ignore day)')
   .action((date: string | undefined, opts: { tag?: string; all?: boolean }) =>
     run(() => cmdDesk(date, { ...globals(), ...opts })),
   );
 
+desk
+  .command('list [date]')
+  .description('Compact numbered list of open tasks (default: today)')
+  .option('-t, --tag <tag>', 'Filter by hashtag')
+  .option('-a, --all', 'All open tasks (ignore day)')
+  .action((date: string | undefined, opts: { tag?: string; all?: boolean }) =>
+    run(() => cmdDesk(date, { ...globals(), ...opts })),
+  );
+
+desk
+  .command('read <ref>')
+  .description('Read one task (day #, #ticket, or id) — title, detail, notes')
+  .option('-n, --note <text>', 'Add a note under the task')
+  .action((ref: string, opts: { note?: string }) =>
+    run(() => cmdDeskRead(ref, { ...globals(), ...opts })),
+  );
+
 program
-  .command('work <id>')
-  .description('Show a task, start a timer, stop on Enter')
+  .command('work <ref>')
+  .description('Show a task, start a timer, stop on Enter (day # / #ticket / id)')
   .option('--done', 'Mark done when the timer stops')
-  .action((id: string, opts: { done?: boolean }) =>
-    run(() => cmdWork(id, { ...globals(), ...opts })),
+  .action((ref: string, opts: { done?: boolean }) =>
+    run(() => cmdWork(ref, { ...globals(), ...opts })),
   );
 
 const auth = program.command('auth').description('Agent token setup');
@@ -115,9 +134,9 @@ auth
 const task = program.command('task').description('Create and update tasks');
 
 task
-  .command('show <id>')
-  .description('Show one task or thread note')
-  .action((id: string) => run(() => cmdTaskShow(id, globals())));
+  .command('show <ref>')
+  .description('Show one task (day # / #ticket / id) — same as desk read')
+  .action((ref: string) => run(() => cmdTaskShow(ref, globals())));
 
 task
   .command('add <text...>')
@@ -135,41 +154,41 @@ task
   );
 
 task
-  .command('date <id> <day>')
+  .command('date <ref> <day>')
   .description('Schedule a task (YYYY-MM-DD / today / tomorrow / none)')
-  .action((id: string, day: string) => run(() => cmdTaskDate(id, day, globals())));
+  .action((ref: string, day: string) => run(() => cmdTaskDate(ref, day, globals())));
 
 task
-  .command('done <id>')
+  .command('done <ref>')
   .description('Mark a task finished')
-  .action((id: string) => run(() => cmdTaskDone(id, globals())));
+  .action((ref: string) => run(() => cmdTaskDone(ref, globals())));
 
 task
-  .command('reopen <id>')
+  .command('reopen <ref>')
   .description('Reopen a finished task')
-  .action((id: string) => run(() => cmdTaskReopen(id, globals())));
+  .action((ref: string) => run(() => cmdTaskReopen(ref, globals())));
 
 task
-  .command('trash <id>')
+  .command('trash <ref>')
   .description('Move a task to trash')
-  .action((id: string) => run(() => cmdTaskTrash(id, globals())));
+  .action((ref: string) => run(() => cmdTaskTrash(ref, globals())));
 
 task
-  .command('spent <id> <duration>')
+  .command('spent <ref> <duration>')
   .description('Add logged time (e.g. 25m, 1h 15m)')
-  .action((id: string, duration: string) => run(() => cmdTaskSpent(id, duration, globals())));
+  .action((ref: string, duration: string) => run(() => cmdTaskSpent(ref, duration, globals())));
 
 task
-  .command('estimate <id> <duration>')
+  .command('estimate <ref> <duration>')
   .description('Set planned time (or 0 / none to clear)')
-  .action((id: string, duration: string) =>
-    run(() => cmdTaskEstimate(id, duration, globals())),
+  .action((ref: string, duration: string) =>
+    run(() => cmdTaskEstimate(ref, duration, globals())),
   );
 
 task
-  .command('start <id>')
+  .command('start <ref>')
   .description('Start a local timer on a task')
-  .action((id: string) => run(() => cmdTaskStart(id, globals())));
+  .action((ref: string) => run(() => cmdTaskStart(ref, globals())));
 
 task
   .command('stop')
@@ -215,9 +234,9 @@ github
   .action(() => run(() => cmdGithubSyncDone(globals())));
 
 github
-  .command('push <id>')
+  .command('push <ref>')
   .description('Create a GitHub issue from a Desk task and link it')
-  .action((id: string) => run(() => cmdGithubPush(id, globals())));
+  .action((ref: string) => run(() => cmdGithubPush(ref, globals())));
 
 const gitlab = program.command('gitlab').description('GitLab import / sync / push');
 
@@ -252,9 +271,9 @@ gitlab
   .action(() => run(() => cmdGitlabSyncDone(globals())));
 
 gitlab
-  .command('push <id>')
+  .command('push <ref>')
   .description('Create a GitLab issue from a Desk task and link it')
-  .action((id: string) => run(() => cmdGitlabPush(id, globals())));
+  .action((ref: string) => run(() => cmdGitlabPush(ref, globals())));
 
 program.addHelpText(
   'after',
@@ -262,17 +281,21 @@ program.addHelpText(
 Examples:
   ailiak auth set ailiak_…
   ailiak desk
-  ailiak work <id> --done
-  ailiak task spent <id> 25m
+  ailiak desk read 2
+  ailiak desk read 2 --note "waiting on review"
+  ailiak work 2 --done
+  ailiak task spent 2 25m
   ailiak github config --token ghp_… --repo owner/name
   ailiak github import --dry-run
   ailiak github sync-done
-  ailiak gitlab push <id>
+  ailiak gitlab push 3
+
+Refs after desk list: day # (1, 2…), #ticket, or full id.
 
 Token: https://ailiak.com/studio/agents
 Desk:  https://ailiak.com/desk
 
-Spent / estimate / link need Agent API ≥1.3.0 (deploy agent-api).
+Notes / spent / estimate need a current Agent API (deploy agent-api).
 `,
 );
 

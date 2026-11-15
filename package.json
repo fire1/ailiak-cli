@@ -1,6 +1,6 @@
 {
   "name": "ailiak",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Calm CLI for ailiak.com — desk tasks from the terminal",
   "type": "module",
   "bin": {

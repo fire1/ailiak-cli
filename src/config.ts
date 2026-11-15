@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
-import type { CliConfig, GithubConfig, GitlabConfig, TimerState } from './types.js';
+import type { CliConfig, DeskIndex, GithubConfig, GitlabConfig, TimerState } from './types.js';
 
 export const DEFAULT_API_URL = 'https://api.ailiak.com';
 
@@ -72,11 +72,24 @@ export async function saveConfig(patch: CliConfig): Promise<CliConfig> {
     if (patch.timer) next.timer = patch.timer;
     else delete next.timer;
   }
+  if ('deskIndex' in patch) {
+    if (patch.deskIndex) next.deskIndex = patch.deskIndex;
+    else delete next.deskIndex;
+  }
 
   const path = configPath();
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path, `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 });
   return next;
+}
+
+export async function saveDeskIndex(index: DeskIndex): Promise<void> {
+  await saveConfig({ deskIndex: index });
+}
+
+export async function getDeskIndex(): Promise<DeskIndex | null> {
+  const cfg = await loadConfig();
+  return cfg.deskIndex || null;
 }
 
 export async function resolveSettings(): Promise<{ token: string; apiUrl: string }> {
